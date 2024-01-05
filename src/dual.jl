@@ -133,13 +133,13 @@ end
 # N-ary Operation Definition Tools #
 ####################################
 
-macro define_binary_dual_op(f, xy_body, x_body, y_body)
+macro define_binary_dual_op(f, xy_body, x_body, y_body, Ts)
     FD = ForwardDiff
     defs = quote
         @inline $(f)(x::$FD.Dual{Txy}, y::$FD.Dual{Txy}) where {Txy} = $xy_body
         @inline $(f)(x::$FD.Dual{Tx}, y::$FD.Dual{Ty}) where {Tx,Ty} = Ty ≺ Tx ? $x_body : $y_body
     end
-    for R in AMBIGUOUS_TYPES
+    for R in Ts
         expr = quote
             @inline $(f)(x::$FD.Dual{Tx}, y::$R) where {Tx} = $x_body
             @inline $(f)(x::$R, y::$FD.Dual{Ty}) where {Ty} = $y_body
@@ -149,7 +149,7 @@ macro define_binary_dual_op(f, xy_body, x_body, y_body)
     return esc(defs)
 end
 
-macro define_ternary_dual_op(f, xyz_body, xy_body, xz_body, yz_body, x_body, y_body, z_body)
+macro define_ternary_dual_op(f, xyz_body, xy_body, xz_body, yz_body, x_body, y_body, z_body, Ts)
     FD = ForwardDiff
     defs = quote
         @inline $(f)(x::$FD.Dual{Txyz}, y::$FD.Dual{Txyz}, z::$FD.Dual{Txyz}) where {Txyz} = $xyz_body
@@ -166,7 +166,7 @@ macro define_ternary_dual_op(f, xyz_body, xy_body, xz_body, yz_body, x_body, y_b
             end
         end
     end
-    for R in AMBIGUOUS_TYPES
+    for R in Ts
         expr = quote
             @inline $(f)(x::$FD.Dual{Txy}, y::$FD.Dual{Txy}, z::$R) where {Txy} = $xy_body
             @inline $(f)(x::$FD.Dual{Tx}, y::$FD.Dual{Ty}, z::$R)  where {Tx, Ty} = Ty ≺ Tx ? $x_body : $y_body
@@ -176,7 +176,7 @@ macro define_ternary_dual_op(f, xyz_body, xy_body, xz_body, yz_body, x_body, y_b
             @inline $(f)(x::$R, y::$FD.Dual{Ty}, z::$FD.Dual{Tz}) where {Ty,Tz} = Tz ≺ Ty ? $y_body : $z_body
         end
         append!(defs.args, expr.args)
-        for Q in AMBIGUOUS_TYPES
+        for Q in Ts
             Q === R && continue
             expr = quote
                 @inline $(f)(x::$FD.Dual{Tx}, y::$R, z::$Q) where {Tx} = $x_body
@@ -243,7 +243,7 @@ function unary_dual_definition(M, f)
     end
 end
 
-function binary_dual_definition(M, f)
+function binary_dual_definition(M, f, Ts)
     FD = ForwardDiff
     dvx, dvy = DiffRules.diffrule(M, f, :vx, :vy)
     Mf = M == :Base ? f : :($M.$f)
@@ -279,7 +279,8 @@ function binary_dual_definition(M, f)
                 vy = $FD.value(y)
                 $y_work
                 return $FD.dual_definition_retval(Val{Ty}(), val, dvy, $FD.partials(y))
-            end
+            end,
+            $Ts
         )
     end
     return expr
@@ -392,10 +393,12 @@ for pred in BINARY_PREDICATES
             Base.$(pred),
             $(pred)(value(x), value(y)),
             $(pred)(value(x), y),
-            $(pred)(x, value(y))
+            $(pred)(x, value(y)),
+            $AMBIGUOUS_TYPES
         )
     end
 end
+
 
 ########################
 # Promotion/Conversion #
@@ -452,7 +455,7 @@ for (M, f, arity) in DiffRules.diffrules(filter_modules = nothing)
     if arity == 1
         eval(unary_dual_definition(M, f))
     elseif arity == 2
-        eval(binary_dual_definition(M, f))
+        eval(binary_dual_definition(M, f, AMBIGUOUS_TYPES))
     else
         # error("ForwardDiff currently only knows how to autogenerate Dual definitions for unary and binary functions.")
         # However, the presence of N-ary rules need not cause any problems here, they can simply be ignored.
@@ -466,6 +469,7 @@ end
 # +/- #
 #-----#
 
+@eval begin
 @define_binary_dual_op(
     Base.:+,
     begin
@@ -473,9 +477,12 @@ end
         Dual{Txy}(vx + vy, partials(x) + partials(y))
     end,
     Dual{Tx}(value(x) + y, partials(x)),
-    Dual{Ty}(x + value(y), partials(y))
+    Dual{Ty}(x + value(y), partials(y)),
+    $AMBIGUOUS_TYPES
 )
+end
 
+@eval begin
 @define_binary_dual_op(
     Base.:-,
     begin
@@ -483,8 +490,10 @@ end
         Dual{Txy}(vx - vy, partials(x) - partials(y))
     end,
     Dual{Tx}(value(x) - y, partials(x)),
-    Dual{Ty}(x - value(y), -partials(y))
+    Dual{Ty}(x - value(y), -partials(y)),
+    $AMBIGUOUS_TYPES
 )
+end
 
 @inline Base.:-(d::Dual{T}) where {T} = Dual{T}(-value(d), -partials(d))
 
@@ -499,6 +508,7 @@ end
 
 # We can't use the normal diffrule autogeneration for this because (x/y) === (x * (1/y))
 # doesn't generally hold true for floating point; see issue #264
+@eval begin
 @define_binary_dual_op(
     Base.:/,
     begin
@@ -510,8 +520,10 @@ end
         v = value(y)
         divv = x / v
         Dual{Ty}(divv, -(divv / v) * partials(y))
-    end
+    end,
+    $AMBIGUOUS_TYPES
 )
+end
 
 # exponentiation #
 #----------------#
@@ -549,7 +561,8 @@ for f in (:(Base.:^), :(NaNMath.pow))
                 expv = ($f)(x, v)
                 deriv = (iszero(x) && v > 0) ? zero(expv) : expv*log(x)
                 return Dual{Ty}(expv, deriv * partials(y))
-            end
+            end,
+            $AMBIGUOUS_TYPES
         )
     end
 end
@@ -578,6 +591,7 @@ end
     return Dual{T}(h, p)
 end
 
+@eval begin
 @define_ternary_dual_op(
     Base.hypot,
     calc_hypot(x, y, z, Txyz),
@@ -587,7 +601,9 @@ end
     calc_hypot(x, y, z, Tx),
     calc_hypot(x, y, z, Ty),
     calc_hypot(x, y, z, Tz),
+    $AMBIGUOUS_TYPES
 )
+end
 
 # fma #
 #-----#
@@ -620,6 +636,7 @@ end
     end
 end
 
+@eval begin
 @define_ternary_dual_op(
     Base.fma,
     calc_fma_xyz(x, y, z),                         # xyz_body
@@ -628,8 +645,10 @@ end
     Base.fma(y, x, z),                             # yz_body
     Dual{Tx}(fma(value(x), y, z), partials(x) * y), # x_body
     Base.fma(y, x, z),                              # y_body
-    Dual{Tz}(fma(x, y, value(z)), partials(z))      # z_body
+    Dual{Tz}(fma(x, y, value(z)), partials(z)),     # z_body
+    $AMBIGUOUS_TYPES
 )
+end
 
 # muladd #
 #--------#
@@ -662,6 +681,7 @@ end
     end
 end
 
+@eval begin
 @define_ternary_dual_op(
     Base.muladd,
     calc_muladd_xyz(x, y, z),                         # xyz_body
@@ -670,8 +690,10 @@ end
     Base.muladd(y, x, z),                             # yz_body
     Dual{Tx}(muladd(value(x), y, z), partials(x) * y), # x_body
     Base.muladd(y, x, z),                             # y_body
-    Dual{Tz}(muladd(x, y, value(z)), partials(z))      # z_body
+    Dual{Tz}(muladd(x, y, value(z)), partials(z)),     # z_body
+    $AMBIGUOUS_TYPES
 )
+end
 
 # sin/cos #
 #--------#
