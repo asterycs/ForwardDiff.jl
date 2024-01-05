@@ -470,29 +470,29 @@ end
 #-----#
 
 @eval begin
-@define_binary_dual_op(
-    Base.:+,
-    begin
-        vx, vy = value(x), value(y)
-        Dual{Txy}(vx + vy, partials(x) + partials(y))
-    end,
-    Dual{Tx}(value(x) + y, partials(x)),
-    Dual{Ty}(x + value(y), partials(y)),
-    $AMBIGUOUS_TYPES
-)
+    @define_binary_dual_op(
+        Base.:+,
+        begin
+            vx, vy = value(x), value(y)
+            Dual{Txy}(vx + vy, partials(x) + partials(y))
+        end,
+        Dual{Tx}(value(x) + y, partials(x)),
+        Dual{Ty}(x + value(y), partials(y)),
+        $AMBIGUOUS_TYPES
+    )
 end
 
 @eval begin
-@define_binary_dual_op(
-    Base.:-,
-    begin
-        vx, vy = value(x), value(y)
-        Dual{Txy}(vx - vy, partials(x) - partials(y))
-    end,
-    Dual{Tx}(value(x) - y, partials(x)),
-    Dual{Ty}(x - value(y), -partials(y)),
-    $AMBIGUOUS_TYPES
-)
+    @define_binary_dual_op(
+        Base.:-,
+        begin
+            vx, vy = value(x), value(y)
+            Dual{Txy}(vx - vy, partials(x) - partials(y))
+        end,
+        Dual{Tx}(value(x) - y, partials(x)),
+        Dual{Ty}(x - value(y), -partials(y)),
+        $AMBIGUOUS_TYPES
+    )
 end
 
 @inline Base.:-(d::Dual{T}) where {T} = Dual{T}(-value(d), -partials(d))
@@ -509,20 +509,20 @@ end
 # We can't use the normal diffrule autogeneration for this because (x/y) === (x * (1/y))
 # doesn't generally hold true for floating point; see issue #264
 @eval begin
-@define_binary_dual_op(
-    Base.:/,
-    begin
-        vx, vy = value(x), value(y)
-        Dual{Txy}(vx / vy, _div_partials(partials(x), partials(y), vx, vy))
-    end,
-    Dual{Tx}(value(x) / y, partials(x) / y),
-    begin
-        v = value(y)
-        divv = x / v
-        Dual{Ty}(divv, -(divv / v) * partials(y))
-    end,
-    $AMBIGUOUS_TYPES
-)
+    @define_binary_dual_op(
+        Base.:/,
+        begin
+            vx, vy = value(x), value(y)
+            Dual{Txy}(vx / vy, _div_partials(partials(x), partials(y), vx, vy))
+        end,
+        Dual{Tx}(value(x) / y, partials(x) / y),
+        begin
+            v = value(y)
+            divv = x / v
+            Dual{Ty}(divv, -(divv / v) * partials(y))
+        end,
+        $AMBIGUOUS_TYPES
+    )
 end
 
 # exponentiation #
@@ -592,17 +592,17 @@ end
 end
 
 @eval begin
-@define_ternary_dual_op(
-    Base.hypot,
-    calc_hypot(x, y, z, Txyz),
-    calc_hypot(x, y, z, Txy),
-    calc_hypot(x, y, z, Txz),
-    calc_hypot(x, y, z, Tyz),
-    calc_hypot(x, y, z, Tx),
-    calc_hypot(x, y, z, Ty),
-    calc_hypot(x, y, z, Tz),
-    $AMBIGUOUS_TYPES
-)
+    @define_ternary_dual_op(
+        Base.hypot,
+        calc_hypot(x, y, z, Txyz),
+        calc_hypot(x, y, z, Txy),
+        calc_hypot(x, y, z, Txz),
+        calc_hypot(x, y, z, Tyz),
+        calc_hypot(x, y, z, Tx),
+        calc_hypot(x, y, z, Ty),
+        calc_hypot(x, y, z, Tz),
+        $AMBIGUOUS_TYPES
+    )
 end
 
 # fma #
@@ -637,17 +637,17 @@ end
 end
 
 @eval begin
-@define_ternary_dual_op(
-    Base.fma,
-    calc_fma_xyz(x, y, z),                         # xyz_body
-    calc_fma_xy(x, y, z),                          # xy_body
-    calc_fma_xz(x, y, z),                          # xz_body
-    Base.fma(y, x, z),                             # yz_body
-    Dual{Tx}(fma(value(x), y, z), partials(x) * y), # x_body
-    Base.fma(y, x, z),                              # y_body
-    Dual{Tz}(fma(x, y, value(z)), partials(z)),     # z_body
-    $AMBIGUOUS_TYPES
-)
+    @define_ternary_dual_op(
+        Base.fma,
+        calc_fma_xyz(x, y, z),                         # xyz_body
+        calc_fma_xy(x, y, z),                          # xy_body
+        calc_fma_xz(x, y, z),                          # xz_body
+        Base.fma(y, x, z),                             # yz_body
+        Dual{Tx}(fma(value(x), y, z), partials(x) * y), # x_body
+        Base.fma(y, x, z),                              # y_body
+        Dual{Tz}(fma(x, y, value(z)), partials(z)),     # z_body
+        $AMBIGUOUS_TYPES
+    )
 end
 
 # muladd #
@@ -682,17 +682,17 @@ end
 end
 
 @eval begin
-@define_ternary_dual_op(
-    Base.muladd,
-    calc_muladd_xyz(x, y, z),                         # xyz_body
-    calc_muladd_xy(x, y, z),                          # xy_body
-    calc_muladd_xz(x, y, z),                          # xz_body
-    Base.muladd(y, x, z),                             # yz_body
-    Dual{Tx}(muladd(value(x), y, z), partials(x) * y), # x_body
-    Base.muladd(y, x, z),                             # y_body
-    Dual{Tz}(muladd(x, y, value(z)), partials(z)),     # z_body
-    $AMBIGUOUS_TYPES
-)
+    @define_ternary_dual_op(
+        Base.muladd,
+        calc_muladd_xyz(x, y, z),                         # xyz_body
+        calc_muladd_xy(x, y, z),                          # xy_body
+        calc_muladd_xz(x, y, z),                          # xz_body
+        Base.muladd(y, x, z),                             # yz_body
+        Dual{Tx}(muladd(value(x), y, z), partials(x) * y), # x_body
+        Base.muladd(y, x, z),                             # y_body
+        Dual{Tz}(muladd(x, y, value(z)), partials(z)),     # z_body
+        $AMBIGUOUS_TYPES
+    )
 end
 
 # sin/cos #
